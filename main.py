@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from collections import Counter
 import httpx
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 HKT = timezone(timedelta(hours=8))
@@ -12,22 +12,28 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 CACHE_FILE = "cache.json"
-CACHE_TTL  = 6 * 3600
+CACHE_TTL = 6 * 3600
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)",
     "Accept": "application/json, text/plain, */*",
-    "Referer": "https://bet.hkjc.com/",
 }
-# 官方 last30draw.json（一次拿 30 期）
-MS_LAST30 = "https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json"
-# 單期查詢（用嚟補舊數據）
-MS_BY_DATE = "https://bet.hkjc.com/ch/marksix/getdrawresult?lang=ch&date={d}"
 
-RED  = {1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46}
+# ========== 多個數據源（GitHub 優先，馬會後備）==========
+DATA_SOURCES = [
+    # 1. GitHub 公開六合彩數據庫（每日更新）
+    "https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/public/data/latest.json",
+    # 2. 另一個 GitHub 備份
+    "https://raw.githubusercontent.com/kenchudigital/ML-SixMark-Lab/main/data/draws.json",
+    # 3. 馬會官方（可能被封，但試下）
+    "https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json",
+]
+
+RED = {1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46}
 BLUE = {3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48}
 def color_of(n): return "red" if n in RED else "blue" if n in BLUE else "green"
 
-# ============ 快取 ============
+# ========== 快取 ==========
 def load_cache():
     if os.path.exists(CACHE_FILE):
         try: return json.load(open(CACHE_FILE, encoding="utf-8"))
@@ -38,9 +44,9 @@ def save_cache(c):
     try: json.dump(c, open(CACHE_FILE, "w", encoding="utf-8"), ensure_ascii=False)
     except Exception: pass
 
-# ============ 日期 ============
+# ========== 日期 ==========
 def is_ms_day(d: date) -> bool:
-    return d.weekday() in (1, 3, 5)   # 二、四、六
+    return d.weekday() in (1, 3, 5)
 
 def next_ms_dates(n=5):
     out, d = [], date.today()
@@ -49,85 +55,76 @@ def next_ms_dates(n=5):
         d += timedelta(days=1)
     return out
 
-# ============ 解析 ============
-def parse_last30_item(item):
-    """解析 last30draw.json 單條記錄"""
-    try:
-        # 格式範例：{"id":"24/064","date":"04/06/2024","no":"6+11+19+21+27+43","sno":"8"}
-        date_raw = str(item.get("date", ""))
-        parts = date_raw.split("/")
-        if len(parts) == 3:
-            iso = f"{parts[2]}-{parts[1]}-{parts[0]}"
-        else:
-            iso = date_raw
+# ========== 通用解析器（處理多種格式）==========
+def parse_any_item(item):
+    """嘗試解析任何格式嘅開獎記錄"""
+    if not isinstance(item, dict): return None
 
-        no_str = str(item.get("no", "")).replace(" ", "")
-        nums = [int(x) for x in no_str.split("+") if x.strip().isdigit()]
+    # 搵日期
+    date_val = None
+    for k in ("date", "drawDate", "draw_date", "開獎日期"):
+        v = item.get(k)
+        if v: date_val = str(v); break
+    if not date_val: return None
+
+    # 日期轉 ISO
+    iso = date_val
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+        try: iso = datetime.strptime(date_val, fmt).strftime("%Y-%m-%d"); break
+        except ValueError: pass
+
+    # 搵號碼
+    nums = None
+    for k in ("no", "numbers", "nums", "開獎號碼"):
+        v = item.get(k)
+        if v:
+            if isinstance(v, str):
+                nums = [int(x) for x in v.replace(" ", "").replace(",", "+").split("+") if x.strip().isdigit()]
+            elif isinstance(v, list):
+                nums = [int(x) for x in v if str(x).isdigit()]
+            if nums and len(nums) >= 6: break
+
+    # 如果冇直接欄位，試 no1~no6
+    if not nums or len(nums) < 6:
+        nums = []
+        for i in range(1, 7):
+            v = item.get(f"no{i}") or item.get(f"n{i}")
+            if v and str(v).isdigit(): nums.append(int(v))
         if len(nums) < 6: return None
 
-        special = None
-        for k in ("sno", "special", "specialNo"):
-            v = item.get(k)
-            if v not in (None, "", "0"):
-                try: special = int(v); break
-                except: pass
-        if special is None: return None
+    # 特別號
+    special = None
+    for k in ("sno", "special", "specialNumber", "特別號"):
+        v = item.get(k)
+        if v not in (None, "", "0"):
+            try: special = int(v); break
+            except: pass
 
-        return {
-            "id": str(item.get("id", iso)),
-            "date": iso,
-            "main": sorted(nums[:6]),
-            "special": special,
-        }
-    except Exception:
-        return None
+    if special is None:
+        # 如果 nums 有 7 個，最後一個做特別號
+        if len(nums) >= 7:
+            special = nums[6]; nums = nums[:6]
+        else:
+            return None
 
-def parse_by_date(obj):
-    if isinstance(obj, list):
-        if not obj: return None
-        obj = obj[0]
-    if not isinstance(obj, dict): return None
-    def pick(*ks):
-        for k in ks:
-            v = obj.get(k)
-            if v not in (None, "", "0"): return v
-        return None
+    return {
+        "id": str(item.get("id") or item.get("drawNumber") or iso),
+        "date": iso,
+        "main": sorted(nums[:6]),
+        "special": special,
+    }
+
+async def fetch_source(client, url):
+    """嘗試從單一數據源抓取"""
     try:
-        main = sorted(int(pick(f"no{i}")) for i in range(1, 7))
-        sp = int(pick("sno", "special"))
-    except (TypeError, ValueError):
-        return None
-    raw = str(pick("date", "drawDate") or "")
-    iso = raw
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d"):
-        try: iso = datetime.strptime(raw, fmt).strftime("%Y-%m-%d"); break
-        except ValueError: pass
-    return {"id": str(pick("drawno", "drawNo") or iso),
-            "date": iso, "main": main, "special": sp}
-
-# ============ 抓取 ============
-async def fetch_last30(client):
-    for _ in range(3):
-        try:
-            r = await client.get(MS_LAST30, headers=HEADERS, timeout=15)
-            if r.status_code == 200:
-                # 關鍵：呢個 endpoint 係 utf-8-sig
-                r.encoding = "utf-8-sig"
-                return r.json()
-        except Exception:
-            await asyncio.sleep(1)
-    return None
-
-async def fetch_by_date(client, sem, d):
-    async with sem:
-        for _ in range(2):
-            try:
-                r = await client.get(MS_BY_DATE.format(d=d.isoformat()),
-                                     headers=HEADERS, timeout=12)
-                if r.status_code == 200:
-                    return parse_by_date(r.json())
-            except Exception:
-                await asyncio.sleep(0.8)
+        r = await client.get(url, headers=HEADERS, timeout=15)
+        if r.status_code != 200: return None
+        # 處理 utf-8-sig
+        text = r.text
+        if text.startswith("\ufeff"): text = text[1:]
+        data = json.loads(text)
+        return data
+    except Exception:
         return None
 
 async def get_draws(years=1):
@@ -135,46 +132,32 @@ async def get_draws(years=1):
     ms = cache.get("ms", {})
     now = time.time()
 
-    # 快取有效就唔使抓
     if now - ms.get("updated", 0) < CACHE_TTL and ms.get("draws"):
         return ms["draws"], False, ms.get("updated", 0), ms.get("source", "cache")
 
     draws = dict(ms.get("draws", {}))
-    source = "hkjc"
+    source = "unknown"
     errors = []
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        # 1. 先抓 last30draw.json（快、準）
-        data = await fetch_last30(client)
-        got30 = 0
-        if data and isinstance(data, list):
-            for item in data:
-                p = parse_last30_item(item)
+        for url in DATA_SOURCES:
+            data = await fetch_source(client, url)
+            if not data: continue
+
+            # 數據可能是 list 或 dict
+            items = data if isinstance(data, list) else data.get("draws") or data.get("data") or data.get("results") or []
+            got = 0
+            for item in items:
+                p = parse_any_item(item)
                 if p:
                     draws[p["date"]] = p
-                    got30 += 1
-        else:
-            errors.append("last30draw 抓取失敗")
+                    got += 1
 
-        # 2. 如果想補更多歷史，逐期抓（可選，較慢）
-        if years > 0 and got30 > 0:
-            today = date.today()
-            start = today - timedelta(days=365 * years)
-            days, d = [], start
-            while d <= today:
-                if is_ms_day(d):
-                    iso = d.isoformat()
-                    if iso not in draws:
-                        days.append(d)
-                d += timedelta(days=1)
-
-            # 只補最多 60 期，避免太慢
-            days = days[-60:] if len(days) > 60 else days
-            if days:
-                sem = asyncio.Semaphore(6)
-                results = await asyncio.gather(*[fetch_by_date(client, sem, x) for x in days])
-                for x, r in zip(days, results):
-                    if r: draws[x.isoformat()] = r
+            if got > 0:
+                source = url.split("/")[2]  # 域名
+                break
+            else:
+                errors.append(f"{url.split('/')[2]} 格式唔啱")
 
     if not draws:
         if ms.get("draws"):
@@ -185,47 +168,39 @@ async def get_draws(years=1):
     save_cache(cache)
     return draws, False, now, source
 
-# ============ 統計評分 ============
+# ========== 統計 ==========
 def score_numbers(draws_list):
     if not draws_list: return {}
     total = len(draws_list)
     freq, last_seen, recent20 = Counter(), {}, Counter()
-
     for idx, d in enumerate(draws_list):
         for n in list(d["main"]) + [d["special"]]:
             freq[n] += 1
             if n not in last_seen: last_seen[n] = idx
         if idx < 20:
             for n in d["main"]: recent20[n] += 1
-
     max_freq = max(freq.values()) if freq else 1
     out = {}
     for n in range(1, 50):
-        f  = freq.get(n, 0)
-        ls = last_seen.get(n, total)
-        r  = recent20.get(n, 0)
-        s = 0.40 * (f / max_freq) \
-          + 0.35 * min(ls / max(total, 1), 1.0) \
-          + 0.25 * min(r / 6, 1.0)
-        out[n] = {"n": n, "score": round(s, 4), "freq": f,
-                  "gap": ls, "recent20": r, "color": color_of(n)}
+        f, ls, r = freq.get(n, 0), last_seen.get(n, total), recent20.get(n, 0)
+        s = 0.40*(f/max_freq) + 0.35*min(ls/max(total,1),1) + 0.25*min(r/6,1)
+        out[n] = {"n": n, "score": round(s,4), "freq": f, "gap": ls,
+                  "recent20": r, "color": color_of(n)}
     return out
 
 def build_dantuo(scores, n_dan=3, n_leg=6):
     ranked = sorted(scores.values(), key=lambda x: -x["score"])
     dan = [x["n"] for x in ranked[:n_dan]]
-    leg = [x["n"] for x in ranked[n_dan:n_dan + n_leg]]
+    leg = [x["n"] for x in ranked[n_dan:n_dan+n_leg]]
     tickets = []
     for i in range(len(leg)):
-        for j in range(i + 1, len(leg)):
-            for k in range(j + 1, len(leg)):
+        for j in range(i+1, len(leg)):
+            for k in range(j+1, len(leg)):
                 tickets.append(sorted(dan + [leg[i], leg[j], leg[k]]))
-    return {
-        "dan": dan, "leg": leg, "tickets": tickets,
-        "n_tickets": len(tickets), "cost_hkd": len(tickets) * 10,
-    }
+    return {"dan": dan, "leg": leg, "tickets": tickets,
+            "n_tickets": len(tickets), "cost_hkd": len(tickets)*10}
 
-# ============ API ============
+# ========== API ==========
 @app.get("/api/marksix/next")
 async def api_next():
     nxt = next_ms_dates(5)
@@ -238,31 +213,28 @@ async def api_next():
 async def api_analyze(years: int = 1):
     draws, stale, ts, src = await get_draws(years)
     if not draws:
-        return {"ok": False, "msg": "抓唔到馬會數據，請稍後再試"}
-
+        return {"ok": False, "msg": "抓唔到數據，請稍後再試"}
     items = sorted(draws.values(), key=lambda x: x["date"], reverse=True)
     scores = score_numbers(items)
     dt = build_dantuo(scores, 3, 6)
     nxt = next_ms_dates(1)[0]
     wd = ["一","二","三","四","五","六","日"]
-
     return {
         "ok": True,
-        "data_source": "香港賽馬會 bet.hkjc.com",
+        "data_source": f"數據源：{src}",
         "draw_count": len(items),
         "latest_date": items[0]["date"],
         "latest_draw": items[0],
         "updated": datetime.fromtimestamp(ts, HKT).strftime("%Y-%m-%d %H:%M HKT") if ts else "",
-        "stale": stale,
-        "source": src,
+        "stale": stale, "source": src,
         "next_draw": {"date": nxt.isoformat(), "weekday": wd[nxt.weekday()]},
         "dantuo": dt,
         "ranked": sorted(scores.values(), key=lambda x: -x["score"])[:20],
-        "disclaimer": "統計評分並非預測，每注中獎概率相同，不能提高勝率。",
+        "disclaimer": "統計評分並非預測，每注中獎概率相同。",
     }
 
 @app.get("/health")
-def health(): return {"status": "ok", "time": datetime.now(HKT).isoformat()}
+def health(): return {"status": "ok"}
 
 @app.get("/")
 def root(): return FileResponse("index.html")
