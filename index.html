@@ -3,60 +3,60 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>六合彩統計分析</title>
+<title>六合彩統計分析（本地儲存版）</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   body{background:#0b0f17;color:#e5e7eb;font-family:-apple-system,"PingFang HK",sans-serif}
   .card{background:#131a26;border:1px solid #1f2937;border-radius:14px;padding:16px;margin-bottom:14px}
-  .ball{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
-        border-radius:50%;font-weight:700;color:#fff;margin:3px;font-size:15px}
+  .ball{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;font-weight:700;color:#fff;margin:3px;font-size:15px}
   .br{background:linear-gradient(160deg,#ff6b6b,#c81e1e)}
   .bb{background:linear-gradient(160deg,#60a5fa,#1d4ed8)}
   .bg{background:linear-gradient(160deg,#4ade80,#15803d)}
   .gold{box-shadow:0 0 0 3px #facc15}
   .dan{box-shadow:0 0 0 3px #f59e0b}
   .leg{box-shadow:0 0 0 2px #64748b}
-  .btn{background:#dc2626;color:#fff;padding:.8rem 1.4rem;border-radius:10px;font-weight:600;width:100%;cursor:pointer;border:none}
+  .btn{background:#dc2626;color:#fff;padding:.8rem 1.4rem;border-radius:10px;font-weight:600;width:100%;cursor:pointer;border:none;font-size:1rem}
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .btn2{background:#1f2937;color:#e5e7eb;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
+  .btn-danger{background:#7f1d1d;color:#fca5a5;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
   table{width:100%;font-size:12px}td,th{padding:4px}
-  .ai{background:#0f1a2e;border-left:3px solid #3b82f6;padding:12px;border-radius:8px;white-space:pre-wrap;font-size:13px;line-height:1.6}
+  textarea{width:100%;background:#1f2937;border:1px solid #374151;border-radius:8px;padding:10px;color:#fff;font-size:13px;margin-bottom:10px}
 </style>
 </head>
 <body class="min-h-screen">
 <div class="max-w-3xl mx-auto p-4">
 
-  <h1 class="text-xl font-bold mb-4">🎰 六合彩統計分析</h1>
+  <h1 class="text-xl font-bold mb-4">🎰 六合彩統計分析（本地儲存版）</h1>
 
+  <!-- 數據管理區 -->
   <div class="card">
     <div class="flex items-center justify-between mb-2">
-      <div class="font-bold text-sm">⚙️ OpenRouter 設定（可選）</div>
-      <div id="keyStatus" class="text-xs text-slate-500">未設定</div>
+      <div class="font-bold text-sm">📊 數據庫狀態</div>
+      <div id="dbStatus" class="text-xs text-slate-400">載入中…</div>
     </div>
-    <input id="apiKey" type="password" placeholder="貼上 OpenRouter API Key (sk-or-v1-...)"
-      class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm mb-2">
-    <div class="flex gap-2">
-      <select id="model" class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm">
-        <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek V3.1 (免費)</option>
-        <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (免費)</option>
-        <option value="qwen/qwen-2.5-72b-instruct:free">Qwen 2.5 72B (免費)</option>
-      </select>
-      <button class="btn2" onclick="saveKey()">儲存</button>
+    <div class="flex gap-2 mb-3">
+      <button class="btn2" onclick="exportData()">📤 匯出數據</button>
+      <button class="btn-danger" onclick="clearData()">🗑️ 清空數據</button>
     </div>
-    <div class="text-xs text-slate-500 mt-2">🔒 Key 只存喺你嘅瀏覽器；唔填都用得，只係冇 AI 分析</div>
+    <div class="text-sm font-bold mb-2">📋 貼上開獎數據</div>
+    <div class="text-xs text-slate-400 mb-2">
+      格式：<code>2026-09-13 5,12,18,29,35,46 + 7</code>（每行一期，支援多行）
+    </div>
+    <textarea id="msInput" rows="6" placeholder="2026-09-13 5,12,18,29,35,46 + 7&#10;2026-09-10 3,9,21,28,37,42 + 15"></textarea>
+    <button id="b1" class="btn" onclick="saveAndAnalyze()">💾 儲存並分析</button>
+    <div id="status" class="text-xs text-slate-500 mt-2"></div>
   </div>
 
   <div class="card">
     <div class="text-sm text-slate-400 mb-1">下期搞珠日期</div>
-    <div id="nextDates" class="text-amber-400 font-bold">載入中…</div>
+    <div id="nextDates" class="text-amber-400 font-bold"></div>
   </div>
 
-  <button id="b1" class="btn mb-4" onclick="gen()">🎲 抓馬會數據 + 生成 3膽拖6腳</button>
-  <div id="status" class="text-xs text-slate-500 mb-3"></div>
   <div id="out"></div>
 
   <p class="text-xs text-slate-500 mt-6">
-    ⚠️ 六合彩每期獨立隨機，統計評分不能預測結果。只供學習。
+    ⚠️ 六合彩每期獨立隨機，統計評分不能預測結果。只供學習。<br>
+    💾 數據儲存喺你手機瀏覽器，唔會上傳。清除瀏覽器資料會清空。
   </p>
 </div>
 
@@ -68,144 +68,190 @@ const cc = n => RED.has(n)?'br':BLUE.has(n)?'bb':'bg';
 const pad = n => String(n).padStart(2,'0');
 const ball = (n, cls='') => `<span class="ball ${cc(n)} ${cls}">${pad(n)}</span>`;
 
-function saveKey(){
-  const k = $('apiKey').value.trim();
-  if(k) localStorage.setItem('or_key', k);
-  localStorage.setItem('or_model', $('model').value);
-  $('keyStatus').textContent = '✅ 已儲存';
-  $('keyStatus').className = 'text-xs text-green-400';
+// ===== 本地儲存 =====
+function loadDraws(){
+  try{ return JSON.parse(localStorage.getItem('hkjc_draws') || '[]'); }
+  catch(e){ return []; }
 }
-function loadKey(){
-  const k = localStorage.getItem('or_key');
-  const m = localStorage.getItem('or_model');
-  if(k){ $('apiKey').value = k; $('keyStatus').textContent = '✅ 已載入'; $('keyStatus').className='text-xs text-green-400'; }
-  if(m) $('model').value = m;
+function saveDraws(draws){
+  localStorage.setItem('hkjc_draws', JSON.stringify(draws));
 }
-
-async function askAI(prompt){
-  const key = localStorage.getItem('or_key');
-  if(!key) return null;
-  const model = localStorage.getItem('or_model') || 'deepseek/deepseek-chat-v3.1:free';
-  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method:'POST',
-    headers:{
-      'Authorization': 'Bearer ' + key,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': location.origin,
-      'X-Title': 'HKJC'
-    },
-    body: JSON.stringify({
-      model,
-      messages:[
-        {role:'system', content:'你係香港六合彩分析助手。用繁體中文（香港用語）。必須強調：六合彩每期獨立隨機，唔可以預測，統計只係娛樂。唔准講「必中」「提高中獎率」。'},
-        {role:'user', content: prompt}
-      ],
-      temperature:0.7, max_tokens:700
-    })
-  });
-  if(!r.ok) throw new Error(`OpenRouter ${r.status}`);
-  const d = await r.json();
-  return d.choices?.[0]?.message?.content || '（無回應）';
-}
-
-async function loadNext(){
-  try{
-    const r = await fetch('/api/marksix/next');
-    const d = await r.json();
-    $('nextDates').textContent = d.next_draws.map(x=>`${x.date}（${x.weekday}）`).join(' ｜ ');
-  }catch(e){ $('nextDates').textContent = '載入失敗'; }
-}
-
-async function gen(){
-  const btn = $('b1');
-  btn.disabled = true; btn.textContent = '抓取中…';
-  $('status').textContent = '抓取馬會數據中（首次約 10-20 秒）…';
-  $('out').innerHTML = '';
-
-  try{
-    const r = await fetch('/api/marksix/analyze?years=1');
-    const d = await r.json();
-    if(!d.ok) throw new Error(d.msg || '失敗');
-
-    $('status').textContent =
-      `${d.data_source}｜共 ${d.draw_count} 期｜更新 ${d.updated}${d.stale?'（快取）':''}`;
-
-    const dt = d.dantuo;
-    const latest = d.latest_draw;
-
-    $('out').innerHTML = `
-      <div class="card">
-        <div class="text-sm text-slate-400 mb-1">最新一期 ${latest.date}</div>
-        <div>${latest.main.map(n=>ball(n)).join('')}
-             <span class="text-slate-500 mx-1">|</span>${ball(latest.special,'gold')}</div>
-      </div>
-      <div class="card">
-        <div class="text-sm text-slate-400 mb-2">下期：${d.next_draw.date}（${d.next_draw.weekday}）</div>
-        <div class="font-bold text-amber-400 mb-2">3 膽（每注必含）</div>
-        <div>${dt.dan.map(n=>ball(n,'dan')).join('')}</div>
-        <div class="font-bold text-slate-300 mb-2 mt-4">6 腳（選 3 組合）</div>
-        <div>${dt.leg.map(n=>ball(n,'leg')).join('')}</div>
-        <div class="mt-4 text-sm">注數 <b>${dt.n_tickets}</b>｜成本 <b>$${dt.cost_hkd}</b></div>
-      </div>
-      <div class="card">
-        <div class="font-bold mb-2">首 10 注組合</div>
-        ${dt.tickets.slice(0,10).map((t,i)=>`<div class="text-sm py-1">${i+1}. ${t.map(n=>ball(n)).join('')}</div>`).join('')}
-      </div>
-      <div class="card">
-        <div class="font-bold mb-2">評分明細（前 15）</div>
-        <table>
-          <tr class="text-slate-500"><th>號</th><th>評分</th><th>出現</th><th>遺漏</th><th>近20</th></tr>
-          ${d.ranked.slice(0,15).map(x=>`<tr class="border-t border-slate-800">
-            <td>${ball(x.n)}</td><td class="text-center">${x.score}</td>
-            <td class="text-center">${x.freq}</td><td class="text-center">${x.gap}</td>
-            <td class="text-center">${x.recent20}</td></tr>`).join('')}
-        </table>
-      </div>
-      <div class="card" id="aiCard" style="display:none">
-        <div class="font-bold mb-2">🤖 AI 分析</div>
-        <div id="aiOut" class="ai">分析中…</div>
-      </div>
-    `;
-
-    // 如果有 key，跑 AI
-    if(localStorage.getItem('or_key')){
-      $('aiCard').style.display = 'block';
-      btn.textContent = 'AI 分析中…';
-      const prompt = `香港六合彩統計（共 ${d.draw_count} 期）：
-
-最新一期（${latest.date}）：正碼 ${latest.main.join(',')}，特別號 ${latest.special}
-下期搞珠：${d.next_draw.date}
-
-評分前 10：${d.ranked.slice(0,10).map(x=>`${x.n}號(分${x.score},出現${x.freq},遺漏${x.gap})`).join('；')}
-
-3 膽拖 6 腳：
-- 膽：${dt.dan.join(',')}
-- 腳：${dt.leg.join(',')}
-- ${dt.n_tickets} 注，成本 $${dt.cost_hkd}
-
-請用繁體中文分析：
-1. 膽腳嘅波色/單雙/大小分佈特徵
-2. 同近期趨勢關係
-3. 風險提醒
-4. 強調每注中獎概率一樣，統計唔等於預測
-4 段短文，唔准講「必中」。`;
-      try{
-        const ai = await askAI(prompt);
-        $('aiOut').textContent = ai;
-      }catch(e){
-        $('aiOut').textContent = '❌ AI 失敗：' + e.message;
-      }
-    }
-  }catch(e){
-    $('status').textContent = '❌ ' + e.message;
-  }finally{
-    btn.disabled = false;
-    btn.textContent = '🎲 抓馬會數據 + 生成 3膽拖6腳';
+function updateDbStatus(){
+  const draws = loadDraws();
+  if(draws.length === 0){
+    $('dbStatus').textContent = '冇數據，請先貼上';
+    $('dbStatus').className = 'text-xs text-yellow-400';
+  } else {
+    $('dbStatus').textContent = `共 ${draws.length} 期（最新：${draws[0].date}）`;
+    $('dbStatus').className = 'text-xs text-green-400';
   }
 }
 
-loadKey();
-loadNext();
+function parseInput(text){
+  const draws = [];
+  text.split('\n').forEach(line=>{
+    line = line.trim();
+    if(!line) return;
+    // 格式：YYYY-MM-DD 1,2,3,4,5,6 + 7
+    const match = line.match(/(\d{4}-\d{2}-\d{2})\s+([\d,]+)\s*\+\s*(\d+)/);
+    if(!match) return;
+    const date = match[1];
+    const main = match[2].split(',').map(Number).filter(n=>n>=1 && n<=49).sort((a,b)=>a-b);
+    const special = parseInt(match[3]);
+    if(main.length === 6 && special >= 1 && special <= 49){
+      draws.push({date, main, special});
+    }
+  });
+  return draws;
+}
+
+function mergeDraws(newDraws){
+  const existing = loadDraws();
+  const map = new Map();
+  existing.forEach(d => map.set(d.date, d));
+  newDraws.forEach(d => map.set(d.date, d)); // 新數據覆蓋舊數據
+  const merged = Array.from(map.values()).sort((a,b)=>b.date.localeCompare(a.date));
+  saveDraws(merged);
+  return merged;
+}
+
+function clearData(){
+  if(confirm('確定清空所有歷史數據？呢個動作無法復原。')){
+    localStorage.removeItem('hkjc_draws');
+    updateDbStatus();
+    $('out').innerHTML = '';
+  }
+}
+
+function exportData(){
+  const draws = loadDraws();
+  if(draws.length === 0){ alert('冇數據可匯出'); return; }
+  const text = draws.map(d=>`${d.date} ${d.main.join(',')} + ${d.special}`).join('\n');
+  // 複製到剪貼板
+  navigator.clipboard.writeText(text).then(()=>{
+    alert('已複製到剪貼板！你可以貼去備忘錄保存。');
+  }).catch(()=>{
+    prompt('請手動複製以下數據：', text);
+  });
+}
+
+// ===== 分析邏輯 =====
+function scoreNumbers(draws){
+  if(!draws.length) return {};
+  const total = draws.length;
+  const freq={}, lastSeen={}, recent={};
+  draws.forEach((d,i)=>{
+    [...d.main, d.special].forEach(n=>{
+      freq[n]=(freq[n]||0)+1;
+      if(lastSeen[n]===undefined) lastSeen[n]=i;
+    });
+    if(i<20) d.main.forEach(n=>recent[n]=(recent[n]||0)+1);
+  });
+  const maxF = Math.max(...Object.values(freq), 1);
+  const out = {};
+  for(let n=1;n<=49;n++){
+    const f=freq[n]||0, ls=lastSeen[n]??total, r=recent[n]||0;
+    const s = 0.40*(f/maxF) + 0.35*Math.min(ls/total,1) + 0.25*Math.min(r/6,1);
+    out[n] = {n, score:+s.toFixed(4), freq:f, gap:ls, recent20:r};
+  }
+  return out;
+}
+
+function buildDantuo(scores){
+  const sorted = Object.values(scores).sort((a,b)=>b.score-a.score);
+  const dan = sorted.slice(0,3).map(x=>x.n);
+  const leg = sorted.slice(3,9).map(x=>x.n);
+  const tickets = [];
+  for(let i=0;i<leg.length;i++)
+    for(let j=i+1;j<leg.length;j++)
+      for(let k=j+1;k<leg.length;k++)
+        tickets.push([...dan, leg[i], leg[j], leg[k]].sort((a,b)=>a-b));
+  return {dan, leg, tickets, n: tickets.length, cost: tickets.length*10};
+}
+
+function isMSDay(d){ return [2,4,6].includes(d.getDay()); }
+function nextMS(n=5){
+  const out=[], d=new Date();
+  while(out.length<n){ if(isMSDay(d)) out.push(new Date(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+
+function render(draws){
+  if(draws.length < 3){
+    $('out').innerHTML = '<div class="card text-yellow-400">數據不足 3 期，請繼續貼上更多數據。</div>';
+    return;
+  }
+  const scores = scoreNumbers(draws);
+  const dt = buildDantuo(scores);
+  const nxt = nextMS(1)[0];
+  const nxtStr = `${nxt.getFullYear()}-${pad(nxt.getMonth()+1)}-${pad(nxt.getDate())}`;
+  const wd = ['日','一','二','三','四','五','六'];
+  const latest = draws[0];
+  const ranked = Object.values(scores).sort((a,b)=>b.score-a.score);
+
+  $('out').innerHTML = `
+    <div class="card">
+      <div class="text-sm text-slate-400 mb-1">最新一期 ${latest.date}</div>
+      <div>${latest.main.map(n=>ball(n)).join('')}<span class="text-slate-500 mx-1">|</span>${ball(latest.special,'gold')}</div>
+    </div>
+    <div class="card">
+      <div class="text-sm text-slate-400 mb-2">下期：${nxtStr}（星期${wd[nxt.getDay()]}）</div>
+      <div class="font-bold text-amber-400 mb-2">3 膽（每注必含）</div>
+      <div>${dt.dan.map(n=>ball(n,'dan')).join('')}</div>
+      <div class="font-bold text-slate-300 mb-2 mt-4">6 腳（選 3 組合）</div>
+      <div>${dt.leg.map(n=>ball(n,'leg')).join('')}</div>
+      <div class="mt-4 text-sm">注數 <b>${dt.n}</b>｜成本 <b>$${dt.cost}</b></div>
+    </div>
+    <div class="card">
+      <div class="font-bold mb-2">首 10 注組合</div>
+      ${dt.tickets.slice(0,10).map((t,i)=>`<div class="text-sm py-1">${i+1}. ${t.map(n=>ball(n)).join('')}</div>`).join('')}
+    </div>
+    <div class="card">
+      <div class="font-bold mb-2">評分明細（前 15）</div>
+      <table>
+        <tr class="text-slate-500"><th>號</th><th>評分</th><th>出現</th><th>遺漏</th><th>近20</th></tr>
+        ${ranked.slice(0,15).map(x=>`<tr class="border-t border-slate-800"><td>${ball(x.n)}</td><td class="text-center">${x.score}</td><td class="text-center">${x.freq}</td><td class="text-center">${x.gap}</td><td class="text-center">${x.recent20}</td></tr>`).join('')}
+      </table>
+    </div>
+  `;
+}
+
+function saveAndAnalyze(){
+  const btn = $('b1');
+  btn.disabled = true; btn.textContent = '處理中…';
+  $('status').textContent = '';
+
+  try{
+    const raw = $('msInput').value.trim();
+    if(!raw) throw new Error('請先貼上開獎數據');
+
+    const newDraws = parseInput(raw);
+    if(newDraws.length === 0) throw new Error('解析唔到任何數據，請檢查格式');
+
+    const merged = mergeDraws(newDraws);
+    $('status').textContent = `成功儲存 ${newDraws.length} 期（總共 ${merged.length} 期）`;
+    $('msInput').value = ''; // 清空輸入框
+    updateDbStatus();
+    render(merged);
+  }catch(e){
+    $('status').textContent = '❌ ' + e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = '💾 儲存並分析';
+  }
+}
+
+// ===== 初始化 =====
+function init(){
+  updateDbStatus();
+  const dates = nextMS(5);
+  const wd = ['日','一','二','三','四','五','六'];
+  $('nextDates').textContent = dates.map(d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}（${wd[d.getDay()]}）`).join(' ｜ ');
+  
+  const existing = loadDraws();
+  if(existing.length > 0) render(existing);
+}
+
+init();
 </script>
 </body>
 </html>
