@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>六合彩統計分析</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{background:#0b0f17;color:#e5e7eb;font-family:-apple-system,"PingFang HK",sans-serif}
+  .card{background:#131a26;border:1px solid #1f2937;border-radius:14px;padding:16px;margin-bottom:14px}
+  .ball{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
+        border-radius:50%;font-weight:700;color:#fff;margin:3px;font-size:15px}
+  .br{background:linear-gradient(160deg,#ff6b6b,#c81e1e)}
+  .bb{background:linear-gradient(160deg,#60a5fa,#1d4ed8)}
+  .bg{background:linear-gradient(160deg,#4ade80,#15803d)}
+  .gold{box-shadow:0 0 0 3px #facc15}
+  .dan{box-shadow:0 0 0 3px #f59e0b}
+  .leg{box-shadow:0 0 0 2px #64748b}
+  .btn{background:#dc2626;color:#fff;padding:.8rem 1.4rem;border-radius:10px;font-weight:600;width:100%;cursor:pointer;border:none}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn2{background:#1f2937;color:#e5e7eb;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
+  table{width:100%;font-size:12px}td,th{padding:4px}
+  .ai{background:#0f1a2e;border-left:3px solid #3b82f6;padding:12px;border-radius:8px;white-space:pre-wrap;font-size:13px;line-height:1.6}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-3xl mx-auto p-4">
+
+  <h1 class="text-xl font-bold mb-4">🎰 六合彩統計分析</h1>
+
+  <div class="card">
+    <div class="flex items-center justify-between mb-2">
+      <div class="font-bold text-sm">⚙️ OpenRouter 設定（可選）</div>
+      <div id="keyStatus" class="text-xs text-slate-500">未設定</div>
+    </div>
+    <input id="apiKey" type="password" placeholder="貼上 OpenRouter API Key (sk-or-v1-...)"
+      class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm mb-2">
+    <div class="flex gap-2">
+      <select id="model" class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm">
+        <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek V3.1 (免費)</option>
+        <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (免費)</option>
+        <option value="qwen/qwen-2.5-72b-instruct:free">Qwen 2.5 72B (免費)</option>
+      </select>
+      <button class="btn2" onclick="saveKey()">儲存</button>
+    </div>
+    <div class="text-xs text-slate-500 mt-2">🔒 Key 只存喺你嘅瀏覽器；唔填都用得，只係冇 AI 分析</div>
+  </div>
+
+  <div class="card">
+    <div class="text-sm text-slate-400 mb-1">下期搞珠日期</div>
+    <div id="nextDates" class="text-amber-400 font-bold">載入中…</div>
+  </div>
+
+  <button id="b1" class="btn mb-4" onclick="gen()">🎲 抓馬會數據 + 生成 3膽拖6腳</button>
+  <div id="status" class="text-xs text-slate-500 mb-3"></div>
+  <div id="out"></div>
+
+  <p class="text-xs text-slate-500 mt-6">
+    ⚠️ 六合彩每期獨立隨機，統計評分不能預測結果。只供學習。
+  </p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const RED = new Set([1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46]);
+const BLUE = new Set([3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48]);
+const cc = n => RED.has(n)?'br':BLUE.has(n)?'bb':'bg';
+const pad = n => String(n).padStart(2,'0');
+const ball = (n, cls='') => `<span class="ball ${cc(n)} ${cls}">${pad(n)}</span>`;
+
+function saveKey(){
+  const k = $('apiKey').value.trim();
+  if(k) localStorage.setItem('or_key', k);
+  localStorage.setItem('or_model', $('model').value);
+  $('keyStatus').textContent = '✅ 已儲存';
+  $('keyStatus').className = 'text-xs text-green-400';
+}
+function loadKey(){
+  const k = localStorage.getItem('or_key');
+  const m = localStorage.getItem('or_model');
+  if(k){ $('apiKey').value = k; $('keyStatus').textContent = '✅ 已載入'; $('keyStatus').className='text-xs text-green-400'; }
+  if(m) $('model').value = m;
+}
+
+async function askAI(prompt){
+  const key = localStorage.getItem('or_key');
+  if(!key) return null;
+  const model = localStorage.getItem('or_model') || 'deepseek/deepseek-chat-v3.1:free';
+  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method:'POST',
+    headers:{
+      'Authorization': 'Bearer ' + key,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': location.origin,
+      'X-Title': 'HKJC'
+    },
+    body: JSON.stringify({
+      model,
+      messages:[
+        {role:'system', content:'你係香港六合彩分析助手。用繁體中文（香港用語）。必須強調：六合彩每期獨立隨機，唔可以預測，統計只係娛樂。唔准講「必中」「提高中獎率」。'},
+        {role:'user', content: prompt}
+      ],
+      temperature:0.7, max_tokens:700
+    })
+  });
+  if(!r.ok) throw new Error(`OpenRouter ${r.status}`);
+  const d = await r.json();
+  return d.choices?.[0]?.message?.content || '（無回應）';
+}
+
+async function loadNext(){
+  try{
+    const r = await fetch('/api/marksix/next');
+    const d = await r.json();
+    $('nextDates').textContent = d.next_draws.map(x=>`${x.date}（${x.weekday}）`).join(' ｜ ');
+  }catch(e){ $('nextDates').textContent = '載入失敗'; }
+}
+
+async function gen(){
+  const btn = $('b1');
+  btn.disabled = true; btn.textContent = '抓取中…';
+  $('status').textContent = '抓取馬會數據中（首次約 10-20 秒）…';
+  $('out').innerHTML = '';
+
+  try{
+    const r = await fetch('/api/marksix/analyze?years=1');
+    const d = await r.json();
+    if(!d.ok) throw new Error(d.msg || '失敗');
+
+    $('status').textContent =
+      `${d.data_source}｜共 ${d.draw_count} 期｜更新 ${d.updated}${d.stale?'（快取）':''}`;
+
+    const dt = d.dantuo;
+    const latest = d.latest_draw;
+
+    $('out').innerHTML = `
+      <div class="card">
+        <div class="text-sm text-slate-400 mb-1">最新一期 ${latest.date}</div>
+        <div>${latest.main.map(n=>ball(n)).join('')}
+             <span class="text-slate-500 mx-1">|</span>${ball(latest.special,'gold')}</div>
+      </div>
+      <div class="card">
+        <div class="text-sm text-slate-400 mb-2">下期：${d.next_draw.date}（${d.next_draw.weekday}）</div>
+        <div class="font-bold text-amber-400 mb-2">3 膽（每注必含）</div>
+        <div>${dt.dan.map(n=>ball(n,'dan')).join('')}</div>
+        <div class="font-bold text-slate-300 mb-2 mt-4">6 腳（選 3 組合）</div>
+        <div>${dt.leg.map(n=>ball(n,'leg')).join('')}</div>
+        <div class="mt-4 text-sm">注數 <b>${dt.n_tickets}</b>｜成本 <b>$${dt.cost_hkd}</b></div>
+      </div>
+      <div class="card">
+        <div class="font-bold mb-2">首 10 注組合</div>
+        ${dt.tickets.slice(0,10).map((t,i)=>`<div class="text-sm py-1">${i+1}. ${t.map(n=>ball(n)).join('')}</div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="font-bold mb-2">評分明細（前 15）</div>
+        <table>
+          <tr class="text-slate-500"><th>號</th><th>評分</th><th>出現</th><th>遺漏</th><th>近20</th></tr>
+          ${d.ranked.slice(0,15).map(x=>`<tr class="border-t border-slate-800">
+            <td>${ball(x.n)}</td><td class="text-center">${x.score}</td>
+            <td class="text-center">${x.freq}</td><td class="text-center">${x.gap}</td>
+            <td class="text-center">${x.recent20}</td></tr>`).join('')}
+        </table>
+      </div>
+      <div class="card" id="aiCard" style="display:none">
+        <div class="font-bold mb-2">🤖 AI 分析</div>
+        <div id="aiOut" class="ai">分析中…</div>
+      </div>
+    `;
+
+    // 如果有 key，跑 AI
+    if(localStorage.getItem('or_key')){
+      $('aiCard').style.display = 'block';
+      btn.textContent = 'AI 分析中…';
+      const prompt = `香港六合彩統計（共 ${d.draw_count} 期）：
+
+最新一期（${latest.date}）：正碼 ${latest.main.join(',')}，特別號 ${latest.special}
+下期搞珠：${d.next_draw.date}
+
+評分前 10：${d.ranked.slice(0,10).map(x=>`${x.n}號(分${x.score},出現${x.freq},遺漏${x.gap})`).join('；')}
+
+3 膽拖 6 腳：
+- 膽：${dt.dan.join(',')}
+- 腳：${dt.leg.join(',')}
+- ${dt.n_tickets} 注，成本 $${dt.cost_hkd}
+
+請用繁體中文分析：
+1. 膽腳嘅波色/單雙/大小分佈特徵
+2. 同近期趨勢關係
+3. 風險提醒
+4. 強調每注中獎概率一樣，統計唔等於預測
+4 段短文，唔准講「必中」。`;
+      try{
+        const ai = await askAI(prompt);
+        $('aiOut').textContent = ai;
+      }catch(e){
+        $('aiOut').textContent = '❌ AI 失敗：' + e.message;
+      }
+    }
+  }catch(e){
+    $('status').textContent = '❌ ' + e.message;
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '🎲 抓馬會數據 + 生成 3膽拖6腳';
+  }
+}
+
+loadKey();
+loadNext();
+</script>
+</body>
+</html>
