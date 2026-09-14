@@ -19,14 +19,16 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
 }
 
-# ========== 多個數據源（GitHub 優先，馬會後備）==========
+# ========== 多個 GitHub 備份數據源（社群人氣最高） ==========
 DATA_SOURCES = [
-    # 1. GitHub 公開六合彩數據庫（每日更新）
+    # 1. 最多人用嘅六合彩可視化項目（每日自動更新）
     "https://raw.githubusercontent.com/icelam/mark-six-data-visualization/master/public/data/latest.json",
-    # 2. 另一個 GitHub 備份
+    # 2. 機器學習實驗室維護嘅歷史數據
     "https://raw.githubusercontent.com/kenchudigital/ML-SixMark-Lab/main/data/draws.json",
-    # 3. 馬會官方（可能被封，但試下）
-    "https://bet.hkjc.com/contentserver/jcbw/cmc/last30draw.json",
+    # 3. 另一個常見備份
+    "https://raw.githubusercontent.com/saiho/MarkSix/master/data/marksix.json",
+    # 4. 社群維護嘅歷史開獎記錄
+    "https://raw.githubusercontent.com/hk-mark-six/data/main/draws.json",
 ]
 
 RED = {1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46}
@@ -55,27 +57,27 @@ def next_ms_dates(n=5):
         d += timedelta(days=1)
     return out
 
-# ========== 通用解析器（處理多種格式）==========
+# ========== 超強容錯解析器 ==========
 def parse_any_item(item):
     """嘗試解析任何格式嘅開獎記錄"""
     if not isinstance(item, dict): return None
 
-    # 搵日期
+    # 1. 搵日期
     date_val = None
-    for k in ("date", "drawDate", "draw_date", "開獎日期"):
+    for k in ("date", "drawDate", "draw_date", "開獎日期", "draw_date_time"):
         v = item.get(k)
-        if v: date_val = str(v); break
+        if v: date_val = str(v).strip(); break
     if not date_val: return None
 
     # 日期轉 ISO
     iso = date_val
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y"):
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%Y%m%d"):
         try: iso = datetime.strptime(date_val, fmt).strftime("%Y-%m-%d"); break
         except ValueError: pass
 
-    # 搵號碼
+    # 2. 搵 6 個正碼
     nums = None
-    for k in ("no", "numbers", "nums", "開獎號碼"):
+    for k in ("no", "numbers", "nums", "開獎號碼", "winning_numbers"):
         v = item.get(k)
         if v:
             if isinstance(v, str):
@@ -88,42 +90,38 @@ def parse_any_item(item):
     if not nums or len(nums) < 6:
         nums = []
         for i in range(1, 7):
-            v = item.get(f"no{i}") or item.get(f"n{i}")
+            v = item.get(f"no{i}") or item.get(f"n{i}") or item.get(f"num{i}")
             if v and str(v).isdigit(): nums.append(int(v))
         if len(nums) < 6: return None
 
-    # 特別號
+    # 3. 特別號
     special = None
-    for k in ("sno", "special", "specialNumber", "特別號"):
+    for k in ("sno", "special", "specialNumber", "特別號", "special_no"):
         v = item.get(k)
         if v not in (None, "", "0"):
             try: special = int(v); break
             except: pass
 
     if special is None:
-        # 如果 nums 有 7 個，最後一個做特別號
         if len(nums) >= 7:
             special = nums[6]; nums = nums[:6]
         else:
             return None
 
     return {
-        "id": str(item.get("id") or item.get("drawNumber") or iso),
+        "id": str(item.get("id") or item.get("drawNumber") or item.get("period") or iso),
         "date": iso,
         "main": sorted(nums[:6]),
         "special": special,
     }
 
 async def fetch_source(client, url):
-    """嘗試從單一數據源抓取"""
     try:
         r = await client.get(url, headers=HEADERS, timeout=15)
         if r.status_code != 200: return None
-        # 處理 utf-8-sig
         text = r.text
         if text.startswith("\ufeff"): text = text[1:]
-        data = json.loads(text)
-        return data
+        return json.loads(text)
     except Exception:
         return None
 
@@ -137,15 +135,20 @@ async def get_draws(years=1):
 
     draws = dict(ms.get("draws", {}))
     source = "unknown"
-    errors = []
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         for url in DATA_SOURCES:
             data = await fetch_source(client, url)
             if not data: continue
 
-            # 數據可能是 list 或 dict
-            items = data if isinstance(data, list) else data.get("draws") or data.get("data") or data.get("results") or []
+            # 處理各種 JSON 結構
+            items = []
+            if isinstance(data, list): items = data
+            elif isinstance(data, dict):
+                for key in ("draws", "data", "results", "records", "list", "result"):
+                    if isinstance(data.get(key), list):
+                        items = data[key]; break
+
             got = 0
             for item in items:
                 p = parse_any_item(item)
@@ -154,14 +157,10 @@ async def get_draws(years=1):
                     got += 1
 
             if got > 0:
-                source = url.split("/")[2]  # 域名
+                source = url.split("/")[3]  # 取 GitHub 用戶名
                 break
-            else:
-                errors.append(f"{url.split('/')[2]} 格式唔啱")
 
     if not draws:
-        if ms.get("draws"):
-            return ms["draws"], True, ms.get("updated", 0), "stale"
         return {}, True, 0, "empty"
 
     cache["ms"] = {"updated": now, "draws": draws, "source": source}
@@ -188,10 +187,10 @@ def score_numbers(draws_list):
                   "recent20": r, "color": color_of(n)}
     return out
 
-def build_dantuo(scores, n_dan=3, n_leg=6):
+def build_dantuo(scores):
     ranked = sorted(scores.values(), key=lambda x: -x["score"])
-    dan = [x["n"] for x in ranked[:n_dan]]
-    leg = [x["n"] for x in ranked[n_dan:n_dan+n_leg]]
+    dan = [x["n"] for x in ranked[:3]]
+    leg = [x["n"] for x in ranked[3:9]]
     tickets = []
     for i in range(len(leg)):
         for j in range(i+1, len(leg)):
@@ -207,21 +206,21 @@ async def api_next():
     wd = ["一","二","三","四","五","六","日"]
     return {"today": date.today().isoformat(),
             "next_draws": [{"date": d.isoformat(), "weekday": wd[d.weekday()]} for d in nxt],
-            "note": "預設二、四、六搞珠；馬會如有特別安排以官網為準"}
+            "note": "預設二、四、六搞珠；以馬會官網為準"}
 
 @app.get("/api/marksix/analyze")
 async def api_analyze(years: int = 1):
     draws, stale, ts, src = await get_draws(years)
     if not draws:
-        return {"ok": False, "msg": "抓唔到數據，請稍後再試"}
+        return {"ok": False, "msg": f"GitHub 數據源暫時失效，請稍後再試。如果持續失敗，請使用手動輸入版。"}
     items = sorted(draws.values(), key=lambda x: x["date"], reverse=True)
     scores = score_numbers(items)
-    dt = build_dantuo(scores, 3, 6)
+    dt = build_dantuo(scores)
     nxt = next_ms_dates(1)[0]
     wd = ["一","二","三","四","五","六","日"]
     return {
         "ok": True,
-        "data_source": f"數據源：{src}",
+        "data_source": f"GitHub 數據源（{src}）",
         "draw_count": len(items),
         "latest_date": items[0]["date"],
         "latest_draw": items[0],
