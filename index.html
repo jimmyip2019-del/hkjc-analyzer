@@ -9,6 +9,7 @@
   body{background:#0b0f17;color:#e5e7eb;font-family:-apple-system,"PingFang HK",sans-serif}
   .card{background:#131a26;border:1px solid #1f2937;border-radius:14px;padding:16px;margin-bottom:14px}
   .ball{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;font-weight:700;color:#fff;margin:3px;font-size:15px}
+  .ball-sm{width:32px;height:32px;font-size:13px;margin:2px}
   .br{background:linear-gradient(160deg,#ff6b6b,#c81e1e)}
   .bb{background:linear-gradient(160deg,#60a5fa,#1d4ed8)}
   .bg{background:linear-gradient(160deg,#4ade80,#15803d)}
@@ -19,14 +20,23 @@
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .btn2{background:#1f2937;color:#e5e7eb;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
   .btn-danger{background:#7f1d1d;color:#fca5a5;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
+  .btn-blue{background:#1e40af;color:#fff;padding:.5rem 1rem;border-radius:8px;cursor:pointer;border:none;font-size:.85rem}
   table{width:100%;font-size:12px}td,th{padding:4px}
   textarea{width:100%;background:#1f2937;border:1px solid #374151;border-radius:8px;padding:10px;color:#fff;font-size:13px;margin-bottom:10px}
+  .err-line{color:#fca5a5;font-size:12px;padding:2px 0}
+  .banner{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:10px 12px;font-size:12px;color:#94a3b8;margin-bottom:14px}
+  details summary{cursor:pointer;user-select:none}
+  details summary::-webkit-details-marker{color:#64748b}
 </style>
 </head>
 <body class="min-h-screen">
 <div class="max-w-3xl mx-auto p-4">
 
-  <h1 class="text-xl font-bold mb-4">🎰 六合彩統計分析（本地儲存版）</h1>
+  <h1 class="text-xl font-bold mb-3">🎰 六合彩統計分析（本地儲存版）</h1>
+
+  <div class="banner" id="pwaHint">
+    📌 建議將呢個網頁「加到主畫面」（分享 → 加入主畫面），可以避免 Safari 7 日冇開自動清空數據。
+  </div>
 
   <!-- 數據管理區 -->
   <div class="card">
@@ -34,17 +44,19 @@
       <div class="font-bold text-sm">📊 數據庫狀態</div>
       <div id="dbStatus" class="text-xs text-slate-400">載入中…</div>
     </div>
-    <div class="flex gap-2 mb-3">
-      <button class="btn2" onclick="exportData()">📤 匯出數據</button>
+    <div class="flex gap-2 mb-3 flex-wrap">
+      <button class="btn2" onclick="exportData()">📤 匯出到剪貼板</button>
+      <button class="btn-blue" onclick="downloadData()">⬇️ 下載備份</button>
       <button class="btn-danger" onclick="clearData()">🗑️ 清空數據</button>
     </div>
     <div class="text-sm font-bold mb-2">📋 貼上開獎數據</div>
     <div class="text-xs text-slate-400 mb-2">
-      格式：<code>2026-09-13 5,12,18,29,35,46 + 7</code>（每行一期，支援多行）
+      格式：<code>2026-09-13 5,12,18,29,35,46 + 7</code>（每行一期，支援多行；全形逗號「，」「、」都可以）
     </div>
     <textarea id="msInput" rows="6" placeholder="2026-09-13 5,12,18,29,35,46 + 7&#10;2026-09-10 3,9,21,28,37,42 + 15"></textarea>
     <button id="b1" class="btn" onclick="saveAndAnalyze()">💾 儲存並分析</button>
     <div id="status" class="text-xs text-slate-500 mt-2"></div>
+    <div id="errList" class="mt-2"></div>
   </div>
 
   <div class="card">
@@ -52,11 +64,84 @@
     <div id="nextDates" class="text-amber-400 font-bold"></div>
   </div>
 
+  <!-- 組合覆蓋設計 -->
+  <div class="card">
+    <div class="font-bold mb-2">🎯 組合覆蓋設計 (Wheeling System)</div>
+    <div class="text-xs text-slate-400 mb-3">
+      呢度嘅工具作用係喺你揀嘅號碼池入面<b>確保覆蓋</b>，唔會亦唔可以提升中獎機率。
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">模式</label>
+        <select id="wheelMode" class="w-full bg-slate-800 rounded p-2 text-sm border border-slate-700" onchange="onWheelModeChange()">
+          <option value="banker">膽拖全覆蓋（膽＋腳）</option>
+          <option value="abbrev">縮水覆蓋（保證組合）</option>
+        </select>
+      </div>
+      <div id="danField">
+        <label class="text-xs text-slate-400 block mb-1">膽（必中號碼數）</label>
+        <select id="danCount" class="w-full bg-slate-800 rounded p-2 text-sm border border-slate-700">
+          <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+          <option value="3" selected>3</option><option value="4">4</option><option value="5">5</option>
+        </select>
+      </div>
+      <div id="guaranteeField" style="display:none">
+        <label class="text-xs text-slate-400 block mb-1">保證級別</label>
+        <select id="guaranteeLevel" class="w-full bg-slate-800 rounded p-2 text-sm border border-slate-700">
+          <option value="3">保 3（池中 3 個至少中一注）</option>
+          <option value="4" selected>保 4（池中 4 個至少中一注）</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="text-xs text-slate-400 block mb-1">
+        <span id="poolLabel">腳（候選號碼池大小）</span>：<span id="poolSizeVal">8</span> 個
+      </label>
+      <input id="poolSize" type="range" min="6" max="15" value="8" class="w-full"
+             oninput="document.getElementById('poolSizeVal').textContent=this.value">
+    </div>
+
+    <div id="wheelWarning" class="text-xs text-amber-400 mb-2"></div>
+    <button class="btn" onclick="generateWheel(event)">🎲 生成組合</button>
+    <div id="wheelStatus" class="text-xs text-slate-500 mt-2"></div>
+    <div id="wheelOut" class="mt-3"></div>
+  </div>
+
+  <!-- 歷史回測 -->
+  <div class="card">
+    <div class="font-bold mb-2">📈 歷史回測</div>
+    <div class="text-xs text-slate-400 mb-3">
+      用你儲存嘅歷史數據，模擬「如果過去每期都用呢個策略」，睇下實際中獎分佈。
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">回測期數</label>
+        <select id="btPeriods" class="w-full bg-slate-800 rounded p-2 text-sm border border-slate-700">
+          <option value="30">最近 30 期</option>
+          <option value="50" selected>最近 50 期</option>
+          <option value="100">最近 100 期</option>
+          <option value="999">全部</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">策略</label>
+        <select id="btStrategy" class="w-full bg-slate-800 rounded p-2 text-sm border border-slate-700">
+          <option value="banker">膽拖（同上設定）</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-blue" style="width:100%" onclick="runBacktest(event)">🔬 開始回測</button>
+    <div id="btStatus" class="text-xs text-slate-500 mt-2"></div>
+    <div id="btOut" class="mt-3"></div>
+  </div>
+
   <div id="out"></div>
 
   <p class="text-xs text-slate-500 mt-6">
-    ⚠️ 六合彩每期獨立隨機，統計評分不能預測結果。只供學習。<br>
-    💾 數據儲存喺你手機瀏覽器，唔會上傳。清除瀏覽器資料會清空。
+    ⚠️ 六合彩每期獨立隨機，統計評分不能預測結果，亦不會提升中獎機率，只供學習同數據整理用。<br>
+    💾 數據儲存喺你手機瀏覽器，唔會上傳到任何伺服器。建議定期用「匯出數據」備份。
   </p>
 </div>
 
@@ -66,15 +151,22 @@ const RED = new Set([1,2,7,8,12,13,18,19,23,24,29,30,34,35,40,45,46]);
 const BLUE = new Set([3,4,9,10,14,15,20,25,26,31,36,37,41,42,47,48]);
 const cc = n => RED.has(n)?'br':BLUE.has(n)?'bb':'bg';
 const pad = n => String(n).padStart(2,'0');
-const ball = (n, cls='') => `<span class="ball ${cc(n)} ${cls}">${pad(n)}</span>`;
+const ball = (n, cls='', small=false) =>
+  `<span class="ball ${small?'ball-sm':''} ${cc(n)} ${cls}">${pad(n)}</span>`;
 
-// ===== 本地儲存 =====
+// ============ 本地儲存 ============
 function loadDraws(){
   try{ return JSON.parse(localStorage.getItem('hkjc_draws') || '[]'); }
   catch(e){ return []; }
 }
 function saveDraws(draws){
-  localStorage.setItem('hkjc_draws', JSON.stringify(draws));
+  try{
+    localStorage.setItem('hkjc_draws', JSON.stringify(draws));
+    return true;
+  }catch(e){
+    alert('⚠️ 儲存失敗，可能已達瀏覽器儲存上限。請先匯出備份，再清空部分舊數據。');
+    return false;
+  }
 }
 function updateDbStatus(){
   const draws = loadDraws();
@@ -87,39 +179,71 @@ function updateDbStatus(){
   }
 }
 
+// ============ 解析 ============
 function parseInput(text){
   const draws = [];
-  text.split('\n').forEach(line=>{
-    line = line.trim();
+  const errors = [];
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((raw, idx) => {
+    const line = raw.trim();
     if(!line) return;
-    // 格式：YYYY-MM-DD 1,2,3,4,5,6 + 7
-    const match = line.match(/(\d{4}-\d{2}-\d{2})\s+([\d,]+)\s*\+\s*(\d+)/);
-    if(!match) return;
-    const date = match[1];
-    const main = match[2].split(',').map(Number).filter(n=>n>=1 && n<=49).sort((a,b)=>a-b);
-    const special = parseInt(match[3]);
-    if(main.length === 6 && special >= 1 && special <= 49){
-      draws.push({date, main, special});
+
+    const norm = line.replace(/[，、]/g, ',').replace(/\s+/g, ' ').trim();
+    const match = norm.match(/(\d{4}-\d{2}-\d{2})\s+([\d,\s]+?)\s*\+\s*(\d{1,2})/);
+
+    if(!match){
+      errors.push(`第 ${idx+1} 行：格式不符 → 「${line.slice(0,40)}」`);
+      return;
     }
+    const date = match[1];
+    const mainRaw = match[2].split(',').map(s=>s.trim()).filter(Boolean).map(Number);
+    const special = parseInt(match[3], 10);
+
+    if(mainRaw.some(n => isNaN(n) || n < 1 || n > 49)){
+      errors.push(`第 ${idx+1} 行：主號碼超出 1-49`);
+      return;
+    }
+    const main = [...new Set(mainRaw)].sort((a,b)=>a-b);
+    if(main.length !== 6){
+      errors.push(`第 ${idx+1} 行：主號需為 6 個不重複號碼`);
+      return;
+    }
+    if(isNaN(special) || special < 1 || special > 49){
+      errors.push(`第 ${idx+1} 行：特別號超出 1-49`);
+      return;
+    }
+    if(main.includes(special)){
+      errors.push(`第 ${idx+1} 行：特別號與主號重複`);
+      return;
+    }
+    draws.push({date, main, special});
   });
-  return draws;
+  return {draws, errors};
 }
 
 function mergeDraws(newDraws){
   const existing = loadDraws();
+  const existingDates = new Set(existing.map(d=>d.date));
   const map = new Map();
   existing.forEach(d => map.set(d.date, d));
-  newDraws.forEach(d => map.set(d.date, d)); // 新數據覆蓋舊數據
+  let overwritten = 0, added = 0;
+  newDraws.forEach(d => {
+    if(existingDates.has(d.date)) overwritten++; else added++;
+    map.set(d.date, d);
+  });
   const merged = Array.from(map.values()).sort((a,b)=>b.date.localeCompare(a.date));
-  saveDraws(merged);
-  return merged;
+  const ok = saveDraws(merged);
+  return {merged: ok ? merged : existing, added, overwritten};
 }
 
 function clearData(){
-  if(confirm('確定清空所有歷史數據？呢個動作無法復原。')){
+  if(confirm('確定清空所有歷史數據？呢個動作無法復原，建議先匯出備份。')){
     localStorage.removeItem('hkjc_draws');
     updateDbStatus();
     $('out').innerHTML = '';
+    $('wheelOut').innerHTML = '';
+    $('btOut').innerHTML = '';
   }
 }
 
@@ -127,48 +251,416 @@ function exportData(){
   const draws = loadDraws();
   if(draws.length === 0){ alert('冇數據可匯出'); return; }
   const text = draws.map(d=>`${d.date} ${d.main.join(',')} + ${d.special}`).join('\n');
-  // 複製到剪貼板
   navigator.clipboard.writeText(text).then(()=>{
-    alert('已複製到剪貼板！你可以貼去備忘錄保存。');
+    alert('已複製到剪貼板！建議貼去備忘錄保存。');
   }).catch(()=>{
     prompt('請手動複製以下數據：', text);
   });
 }
 
-// ===== 分析邏輯 =====
+function downloadData(){
+  const draws = loadDraws();
+  if(draws.length === 0){ alert('冇數據可下載'); return; }
+  const text = draws.map(d=>`${d.date} ${d.main.join(',')} + ${d.special}`).join('\n');
+  const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `六合彩數據_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============ 統計評分 ============
 function scoreNumbers(draws){
   if(!draws.length) return {};
   const total = draws.length;
+  const recentWindow = Math.min(20, total);
   const freq={}, lastSeen={}, recent={};
+
   draws.forEach((d,i)=>{
     [...d.main, d.special].forEach(n=>{
       freq[n]=(freq[n]||0)+1;
       if(lastSeen[n]===undefined) lastSeen[n]=i;
     });
-    if(i<20) d.main.forEach(n=>recent[n]=(recent[n]||0)+1);
+    if(i<recentWindow) d.main.forEach(n=>recent[n]=(recent[n]||0)+1);
   });
-  const maxF = Math.max(...Object.values(freq), 1);
+
+  const alpha = 1;
+  const maxF = Math.max(...Object.values(freq), 1) + alpha;
   const out = {};
   for(let n=1;n<=49;n++){
-    const f=freq[n]||0, ls=lastSeen[n]??total, r=recent[n]||0;
-    const s = 0.40*(f/maxF) + 0.35*Math.min(ls/total,1) + 0.25*Math.min(r/6,1);
-    out[n] = {n, score:+s.toFixed(4), freq:f, gap:ls, recent20:r};
+    const f=(freq[n]||0)+alpha, ls=lastSeen[n]??total, r=recent[n]||0;
+    const s = 0.40*(f/maxF) + 0.35*Math.min(ls/total,1) + 0.25*Math.min(r/Math.max(recentWindow,1),1);
+    out[n] = {n, score:+s.toFixed(4), freq:freq[n]||0, gap:ls, recent20:r};
   }
   return out;
 }
 
-function buildDantuo(scores){
-  const sorted = Object.values(scores).sort((a,b)=>b.score-a.score);
-  const dan = sorted.slice(0,3).map(x=>x.n);
-  const leg = sorted.slice(3,9).map(x=>x.n);
-  const tickets = [];
-  for(let i=0;i<leg.length;i++)
-    for(let j=i+1;j<leg.length;j++)
-      for(let k=j+1;k<leg.length;k++)
-        tickets.push([...dan, leg[i], leg[j], leg[k]].sort((a,b)=>a-b));
-  return {dan, leg, tickets, n: tickets.length, cost: tickets.length*10};
+// ============ 組合引擎 ============
+function combinations(arr, k){
+  const out = [];
+  const n = arr.length;
+  if (k > n || k < 0) return out;
+  const idx = Array.from({length: k}, (_, i) => i);
+  while (true) {
+    out.push(idx.map(i => arr[i]));
+    let i = k - 1;
+    while (i >= 0 && idx[i] === n - k + i) i--;
+    if (i < 0) break;
+    idx[i]++;
+    for (let j = i + 1; j < k; j++) idx[j] = idx[j-1] + 1;
+  }
+  return out;
 }
 
+function generateBankerTickets(dan, legs, total = 6){
+  const need = total - dan.length;
+  if (need < 1 || legs.length < need) return [];
+  return combinations(legs, need).map(c => [...dan, ...c].sort((a,b)=>a-b));
+}
+
+// ============ 中獎判定 ============
+function matchPrize(ticket, drawnMain, drawnSpecial){
+  const hits = ticket.filter(n => drawnMain.includes(n)).length;
+  const hasSp = ticket.includes(drawnSpecial);
+  if (hits === 6) return 1;
+  if (hits === 5 && hasSp) return 2;
+  if (hits === 5) return 3;
+  if (hits === 4 && hasSp) return 4;
+  if (hits === 4) return 5;
+  if (hits === 3 && hasSp) return 6;
+  if (hits === 3) return 7;
+  return 0;
+}
+
+// ============ 覆蓋分析 ============
+function analyzeCoverage(tickets, pool){
+  const stats = {1:0,2:0,3:0,4:0,5:0,6:0,7:0,"無":0};
+  const drawCombos = combinations(pool, 6);
+  let scenarios, sampled = false;
+
+  if (drawCombos.length > 3000) {
+    sampled = true;
+    scenarios = [];
+    for (let i = 0; i < 3000; i++) {
+      const sh = [...pool].sort(() => Math.random() - 0.5);
+      scenarios.push(sh.slice(0, 6));
+    }
+  } else {
+    scenarios = drawCombos;
+  }
+
+  const outside = [];
+  for (let n = 1; n <= 49; n++) if (!pool.includes(n)) outside.push(n);
+
+  for (const drawn of scenarios) {
+    const special = outside[Math.floor(Math.random() * outside.length)];
+    let best = 0;
+    for (const t of tickets) {
+      const p = matchPrize(t, drawn, special);
+      if (p === 0) continue;
+      if (best === 0 || p < best) best = p;
+    }
+    if (best === 0) stats["無"]++; else stats[best]++;
+  }
+  return { sampled, total: scenarios.length, stats };
+}
+
+function renderCoverageTable(stats){
+  const rows = [
+    ['頭獎 (6中)', stats[1]],
+    ['二獎 (5+特)', stats[2]],
+    ['三獎 (5中)', stats[3]],
+    ['四獎 (4+特)', stats[4]],
+    ['五獎 (4中)', stats[5]],
+    ['六獎 (3+特)', stats[6]],
+    ['七獎 (3中)', stats[7]],
+    ['唔中', stats['無']],
+  ];
+  const total = Object.values(stats).reduce((a,b)=>a+b, 0) || 1;
+  return `
+    <table class="w-full text-xs">
+      <tr class="text-slate-500"><th class="text-left">獎項</th><th>場景數</th><th>機率</th></tr>
+      ${rows.map(([name, count]) => `
+        <tr class="border-t border-slate-800">
+          <td class="py-1">${name}</td>
+          <td class="text-center">${count}</td>
+          <td class="text-center">${((count/total)*100).toFixed(2)}%</td>
+        </tr>
+      `).join('')}
+    </table>
+  `;
+}
+
+// ============ 貪心縮水 ============
+function greedyWheel(pool, guaranteeLevel = 3){
+  const allTickets = combinations(pool, 6);
+  if (allTickets.length === 0) return { error: "組合不足" };
+
+  const scenarios = combinations(pool, 6);
+  if (scenarios.length > 8000) {
+    return { error: `場景數 ${scenarios.length} 太多，建議池 ≤ 13 個號碼` };
+  }
+
+  const coverage = allTickets.map(t => {
+    const s = new Set();
+    for (let si = 0; si < scenarios.length; si++) {
+      const hits = t.filter(n => scenarios[si].includes(n)).length;
+      if (hits >= guaranteeLevel) s.add(si);
+    }
+    return s;
+  });
+
+  const uncovered = new Set(scenarios.map((_, i) => i));
+  const chosen = [];
+
+  while (uncovered.size > 0) {
+    let best = -1, bestCount = 0;
+    for (let ti = 0; ti < allTickets.length; ti++) {
+      if (chosen.includes(ti)) continue;
+      let c = 0;
+      for (const s of coverage[ti]) if (uncovered.has(s)) c++;
+      if (c > bestCount) { bestCount = c; best = ti; }
+    }
+    if (best === -1) break;
+    chosen.push(best);
+    for (const s of coverage[best]) uncovered.delete(s);
+  }
+
+  return {
+    tickets: chosen.map(i => allTickets[i]),
+    originalCount: allTickets.length,
+    reducedCount: chosen.length,
+    guarantee: guaranteeLevel,
+    uncoveredScenarios: uncovered.size,
+  };
+}
+
+// ============ 膽拖 / 覆蓋 UI ============
+function onWheelModeChange(){
+  const mode = $('wheelMode').value;
+  if(mode === 'banker'){
+    $('danField').style.display = 'block';
+    $('guaranteeField').style.display = 'none';
+    $('poolLabel').textContent = '腳（候選號碼池大小）';
+  } else {
+    $('danField').style.display = 'none';
+    $('guaranteeField').style.display = 'block';
+    $('poolLabel').textContent = '號碼池大小（用於縮水）';
+  }
+}
+
+function generateWheel(ev){
+  const btn = ev?.target || event.target;
+  btn.disabled = true; btn.textContent = '計算中…';
+
+  try {
+    const draws = loadDraws();
+    if (draws.length < 10) {
+      $('wheelStatus').textContent = '❌ 至少需要 10 期歷史數據';
+      return;
+    }
+
+    const mode = $('wheelMode').value;
+    const poolSize = parseInt($('poolSize').value, 10);
+    const scores = scoreNumbers(draws);
+    const ranked = Object.values(scores)
+      .sort((a,b) => b.score - a.score)
+      .map(x => x.n);
+
+    if (ranked.length < poolSize) {
+      $('wheelStatus').textContent = `❌ 號碼不足（需要 ${poolSize} 個）`;
+      return;
+    }
+
+    const pool = ranked.slice(0, poolSize);
+
+    if (mode === 'banker') {
+      const danCount = parseInt($('danCount').value, 10);
+      const maxDan = Math.min(5, poolSize - 1);
+      if (danCount > maxDan) {
+        $('wheelStatus').textContent = `❌ 膽數最多 ${maxDan} 個`;
+        return;
+      }
+
+      const dan = pool.slice(0, danCount);
+      const legs = pool.slice(danCount);
+      const tickets = generateBankerTickets(dan, legs, 6);
+
+      if (tickets.length > 100) {
+        if (!confirm(`呢個組合有 ${tickets.length} 注（$${tickets.length*10}），確定繼續？`)) {
+          $('wheelStatus').textContent = '已取消';
+          return;
+        }
+      }
+
+      $('wheelStatus').textContent =
+        `計算覆蓋分析中…（${tickets.length} 注）`;
+
+      setTimeout(() => {
+        const cov = analyzeCoverage(tickets, pool);
+
+        $('wheelStatus').textContent =
+          `✅ ${danCount} 膽 + ${legs.length} 腳 → ${tickets.length} 注（$${tickets.length*10}）`;
+
+        $('wheelOut').innerHTML = `
+          <div class="text-sm mb-2">
+            <span class="text-amber-400 font-bold">膽：</span>
+            ${dan.map(n => ball(n, 'dan', true)).join('')}
+          </div>
+          <div class="text-sm mb-3">
+            <span class="text-slate-300 font-bold">腳：</span>
+            ${legs.map(n => ball(n, 'leg', true)).join('')}
+          </div>
+          <div class="text-xs text-slate-400 mb-2">
+            覆蓋分析（${cov.sampled ? '抽樣' : '完整'} ${cov.total} 個場景）：
+          </div>
+          ${renderCoverageTable(cov.stats)}
+          <details class="mt-3">
+            <summary class="text-sm text-slate-400">顯示所有 ${tickets.length} 注</summary>
+            <div class="mt-2">
+              ${tickets.map((t,i)=>`<div class="text-sm py-0.5">${i+1}. ${t.map(n=>ball(n,'',true)).join('')}</div>`).join('')}
+            </div>
+          </details>
+        `;
+      }, 50);
+
+    } else {
+      const guarantee = parseInt($('guaranteeLevel').value, 10);
+      if (poolSize > 13) {
+        $('wheelStatus').textContent = '❌ 縮水模式號碼池最多 13 個';
+        return;
+      }
+
+      $('wheelStatus').textContent = '縮水計算中…（可能需時數秒）';
+
+      setTimeout(() => {
+        const result = greedyWheel(pool, guarantee);
+        if (result.error) {
+          $('wheelStatus').textContent = '❌ ' + result.error;
+          return;
+        }
+
+        $('wheelStatus').textContent =
+          `✅ 保 ${guarantee}：由 ${result.originalCount} 注縮至 ${result.reducedCount} 注（$${result.reducedCount*10}）`;
+
+        $('wheelOut').innerHTML = `
+          <div class="text-xs text-slate-400 mb-2">
+            號碼池：${pool.map(n=>ball(n,'',true)).join('')}
+          </div>
+          <div class="text-xs text-slate-400 mb-2">
+            原始組合：${result.originalCount} 注 ｜ 縮水後：${result.reducedCount} 注 ｜
+            未覆蓋場景：${result.uncoveredScenarios}
+          </div>
+          ${result.tickets.map((t,i)=>`<div class="text-sm py-0.5">${i+1}. ${t.map(n=>ball(n,'',true)).join('')}</div>`).join('')}
+        `;
+      }, 50);
+    }
+
+  } catch(e) {
+    $('wheelStatus').textContent = '❌ ' + e.message;
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🎲 生成組合';
+  }
+}
+
+// ============ 歷史回測 ============
+function runBacktest(ev){
+  const btn = ev?.target || event.target;
+  btn.disabled = true; btn.textContent = '回測中…';
+
+  try {
+    const draws = loadDraws();
+    if (draws.length < 30) {
+      $('btStatus').textContent = '❌ 至少需要 30 期歷史數據';
+      return;
+    }
+
+    const periods = parseInt($('btPeriods').value, 10);
+    const poolSize = parseInt($('poolSize').value, 10);
+    const danCount = parseInt($('danCount').value, 10);
+
+    const results = {1:0,2:0,3:0,4:0,5:0,6:0,7:0,"無":0};
+    let totalCost = 0;
+    let totalWin = 0; // 粗略估算
+
+    const PRIZE_EST = {1: 8000000, 2: 1000000, 3: 100000, 4: 9600, 5: 6400, 6: 320, 7: 40};
+
+    const limit = Math.min(periods, draws.length - 20);
+    let count = 0;
+
+    for (let i = 20; i < 20 + limit && i < draws.length; i++) {
+      const history = draws.slice(i);
+      const actual = draws[i - 1];
+
+      const scores = scoreNumbers(history);
+      const ranked = Object.values(scores)
+        .sort((a,b)=>b.score-a.score)
+        .map(x=>x.n)
+        .slice(0, poolSize);
+
+      const dan = ranked.slice(0, danCount);
+      const legs = ranked.slice(danCount);
+      const tickets = generateBankerTickets(dan, legs, 6);
+
+      totalCost += tickets.length * 10;
+      count++;
+
+      let best = 0;
+      let hasWin = false;
+      for (const t of tickets) {
+        const p = matchPrize(t, actual.main, actual.special);
+        if (p === 0) continue;
+        hasWin = true;
+        if (best === 0 || p < best) best = p;
+      }
+      if (hasWin) {
+        results[best]++;
+        totalWin += PRIZE_EST[best] || 0;
+      } else {
+        results["無"]++;
+      }
+    }
+
+    const total = Object.values(results).reduce((a,b)=>a+b, 0) || 1;
+    const netResult = totalWin - totalCost;
+
+    $('btStatus').textContent = `✅ 完成 ${count} 期回測`;
+    $('btOut').innerHTML = `
+      <div class="text-sm mb-3">
+        <div>總成本：<b class="text-red-400">$${totalCost.toLocaleString()}</b></div>
+        <div>估算獎金：<b class="text-green-400">$${totalWin.toLocaleString()}</b></div>
+        <div>淨結果：<b class="${netResult >= 0 ? 'text-green-400' : 'text-red-400'}">$${netResult.toLocaleString()}</b></div>
+      </div>
+      <div class="text-xs text-slate-400 mb-2">中獎分佈（${total} 期）：</div>
+      <table class="w-full text-xs">
+        <tr class="text-slate-500"><th class="text-left">獎項</th><th>次數</th><th>機率</th></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">頭獎</td><td class="text-center">${results[1]}</td><td class="text-center">${((results[1]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">二獎</td><td class="text-center">${results[2]}</td><td class="text-center">${((results[2]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">三獎</td><td class="text-center">${results[3]}</td><td class="text-center">${((results[3]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">四獎</td><td class="text-center">${results[4]}</td><td class="text-center">${((results[4]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">五獎</td><td class="text-center">${results[5]}</td><td class="text-center">${((results[5]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">六獎</td><td class="text-center">${results[6]}</td><td class="text-center">${((results[6]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">七獎</td><td class="text-center">${results[7]}</td><td class="text-center">${((results[7]/total)*100).toFixed(2)}%</td></tr>
+        <tr class="border-t border-slate-800"><td class="py-1">唔中</td><td class="text-center">${results["無"]}</td><td class="text-center">${((results["無"]/total)*100).toFixed(2)}%</td></tr>
+      </table>
+      <div class="text-xs text-slate-500 mt-3">
+        ⚠️ 獎金為粗略估算，實際派彩視乎當期投注額。回測不代表未來表現。
+      </div>
+    `;
+  } catch(e) {
+    $('btStatus').textContent = '❌ ' + e.message;
+    console.error(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔬 開始回測';
+  }
+}
+
+// ============ 主分析渲染 ============
 function isMSDay(d){ return [2,4,6].includes(d.getDay()); }
 function nextMS(n=5){
   const out=[], d=new Date();
@@ -182,35 +674,39 @@ function render(draws){
     return;
   }
   const scores = scoreNumbers(draws);
-  const dt = buildDantuo(scores);
+  const sorted = Object.values(scores).sort((a,b)=>b.score-a.score);
+  const dan = sorted.slice(0,3).map(x=>x.n);
+  const leg = sorted.slice(3,9).map(x=>x.n);
+  const tickets = generateBankerTickets(dan, leg, 6);
+
   const nxt = nextMS(1)[0];
   const nxtStr = `${nxt.getFullYear()}-${pad(nxt.getMonth()+1)}-${pad(nxt.getDate())}`;
   const wd = ['日','一','二','三','四','五','六'];
   const latest = draws[0];
-  const ranked = Object.values(scores).sort((a,b)=>b.score-a.score);
+  const ranked = sorted;
 
   $('out').innerHTML = `
     <div class="card">
       <div class="text-sm text-slate-400 mb-1">最新一期 ${latest.date}</div>
-      <div>${latest.main.map(n=>ball(n)).join('')}<span class="text-slate-500 mx-1">|</span>${ball(latest.special,'gold')}</div>
+      <div>${latest.main.map(n=>ball(n,'',true)).join('')}<span class="text-slate-500 mx-1">|</span>${ball(latest.special,'gold',true)}</div>
     </div>
     <div class="card">
       <div class="text-sm text-slate-400 mb-2">下期：${nxtStr}（星期${wd[nxt.getDay()]}）</div>
       <div class="font-bold text-amber-400 mb-2">3 膽（每注必含）</div>
-      <div>${dt.dan.map(n=>ball(n,'dan')).join('')}</div>
+      <div>${dan.map(n=>ball(n,'dan',true)).join('')}</div>
       <div class="font-bold text-slate-300 mb-2 mt-4">6 腳（選 3 組合）</div>
-      <div>${dt.leg.map(n=>ball(n,'leg')).join('')}</div>
-      <div class="mt-4 text-sm">注數 <b>${dt.n}</b>｜成本 <b>$${dt.cost}</b></div>
+      <div>${leg.map(n=>ball(n,'leg',true)).join('')}</div>
+      <div class="mt-4 text-sm">注數 <b>${tickets.length}</b>｜成本 <b>$${tickets.length*10}</b></div>
     </div>
     <div class="card">
       <div class="font-bold mb-2">首 10 注組合</div>
-      ${dt.tickets.slice(0,10).map((t,i)=>`<div class="text-sm py-1">${i+1}. ${t.map(n=>ball(n)).join('')}</div>`).join('')}
+      ${tickets.slice(0,10).map((t,i)=>`<div class="text-sm py-1">${i+1}. ${t.map(n=>ball(n,'',true)).join('')}</div>`).join('')}
     </div>
     <div class="card">
       <div class="font-bold mb-2">評分明細（前 15）</div>
       <table>
         <tr class="text-slate-500"><th>號</th><th>評分</th><th>出現</th><th>遺漏</th><th>近20</th></tr>
-        ${ranked.slice(0,15).map(x=>`<tr class="border-t border-slate-800"><td>${ball(x.n)}</td><td class="text-center">${x.score}</td><td class="text-center">${x.freq}</td><td class="text-center">${x.gap}</td><td class="text-center">${x.recent20}</td></tr>`).join('')}
+        ${ranked.slice(0,15).map(x=>`<tr class="border-t border-slate-800"><td>${ball(x.n,'',true)}</td><td class="text-center">${x.score}</td><td class="text-center">${x.freq}</td><td class="text-center">${x.gap}</td><td class="text-center">${x.recent20}</td></tr>`).join('')}
       </table>
     </div>
   `;
@@ -220,17 +716,22 @@ function saveAndAnalyze(){
   const btn = $('b1');
   btn.disabled = true; btn.textContent = '處理中…';
   $('status').textContent = '';
+  $('errList').innerHTML = '';
 
   try{
     const raw = $('msInput').value.trim();
     if(!raw) throw new Error('請先貼上開獎數據');
 
-    const newDraws = parseInput(raw);
-    if(newDraws.length === 0) throw new Error('解析唔到任何數據，請檢查格式');
+    const {draws: newDraws, errors} = parseInput(raw);
 
-    const merged = mergeDraws(newDraws);
-    $('status').textContent = `成功儲存 ${newDraws.length} 期（總共 ${merged.length} 期）`;
-    $('msInput').value = ''; // 清空輸入框
+    if(errors.length){
+      $('errList').innerHTML = errors.map(e=>`<div class="err-line">⚠️ ${e}</div>`).join('');
+    }
+    if(newDraws.length === 0) throw new Error('解析唔到任何有效數據，請檢查上面錯誤提示');
+
+    const {merged, added, overwritten} = mergeDraws(newDraws);
+    $('status').textContent = `✅ 新增 ${added} 期，更新 ${overwritten} 期（總共 ${merged.length} 期）`;
+    $('msInput').value = '';
     updateDbStatus();
     render(merged);
   }catch(e){
@@ -240,13 +741,17 @@ function saveAndAnalyze(){
   }
 }
 
-// ===== 初始化 =====
+// ============ 初始化 ============
 function init(){
   updateDbStatus();
   const dates = nextMS(5);
   const wd = ['日','一','二','三','四','五','六'];
   $('nextDates').textContent = dates.map(d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}（${wd[d.getDay()]}）`).join(' ｜ ');
-  
+
+  if(window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches){
+    $('pwaHint').style.display = 'none';
+  }
+
   const existing = loadDraws();
   if(existing.length > 0) render(existing);
 }
